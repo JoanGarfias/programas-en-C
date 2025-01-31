@@ -1,0 +1,137 @@
+_____________________________
+
+		STDIO.H
+_____________________________
+
+freopen() para manipular stdio y stdout con archivos
+
+remove() borrar un archivo
+
+rename() renombrar un archivo
+
+rewind() regresar el puntero del archivo al inicio
+
+clearerr() limpiar los errores de los archivos
+
+feof() verificar si el puntero del archivo está al final
+
+fgetpos() obtener la posicion actual del puntero del archivo
+
+fgets() leer datos de un archivo o entrada de datos(stdin)
+
+getc() y fgetc() son lo mismo, getc() es una macro y fgetc() es una funcion, sirven para obtener el carácter de un archivo dependiendo del puntero del dato FILE*
+
+fread() lee un archivo y lo guarda en un arreglo de carácteres hasta donde se pueda devuelve la cantidad de carácteres leidos (size_t)
+
+sscanf() lee una cadena de carácteres y lee un formato para asignar valores.
+
+getchar() obtiene un carácter de stdin
+
+putchar() imprime los carácteres de stdin
+
+
+
+_____________________________
+
+		STRING.H
+_____________________________
+
+
+strlwr() convierte un string a minuscula
+
+strupr() convierte un string a mayusculas
+
+strlen() tamaño de un string
+
+strcat() concatena dos string (debe tener el suficiente tamaño para evitar
+debordamiento de búfer)
+
+strncmp() compara los n primeros caracteres de dos cadenas numéricamente
+
+strncpy() copia los n primeros caracteres de una cadena en otra
+
+strtok() parte una cadena en una secuencia de tokens
+
+strrev() invierte una cadena
+
+strcpy() copia un string a otro
+
+strcmp() comparar dos string
+	si strcmp devuelve 0, son iguales
+	si strcmp devuelve positivo, el string 2 tiene mayor prioridad
+	si strcmp devuelve negativo, el string 1 tiene mayor prioridad
+
+strlwr() convierte un string a minuscula
+
+strupr() convierte un string a mayuscula
+
+strrchr() devuelve una nueva cadena cortada a partir de un 
+caracter a buscar de derecha a izquierda
+		DEVUELVE todo lo que encuentra despues del caracter a buscar
+
+
+strchr() devuelve una nueva cadena cortada a partir de un caracter a buscar de izquierda a derecha 
+		DEVUELVE todo lo que encuentra despues del caracter a buscar
+
+_____________________________
+
+		MATH.H
+_____________________________
+
+ceil() redondea al entero mayor más cercano, por ej: ENT: 2.1 SAL: 3
+fabs() valor absoluto
+floor() redondea al entero menor más cercano, por ej: ENT: 2.1 SAL: 2
+sqrt() raiz cuadrada
+fmod(x,y) residuo
+pow(x,y) X elevado a la Y
+
+
+//Funciona en radianes
+cos() coseno
+sin() seno
+tan() tangente
+acos() arco coseno
+asin() arco seno
+atan() arco tangente
+
+_____________________________
+
+		STDLIB.H
+_____________________________
+
+system() ejecutar comandos de windows
+
+atof() de string ascii a float
+
+atoi() de string ascii a entero
+
+atol() de string ascii a long (float)
+
+strtod() de string a double
+
+strtol() de string a entero largo
+
+strtoul() de string a entero largo sin signo
+
+rand() numero aleatorio
+srand() semilla de numeros aleatorios
+
+malloc() reserva memoria de una cantidad fija
+
+calloc() reserva memoria de una cantidad fija, pero limpia el contenido (lo iguala a cero)
+
+realloc() realojar memoria
+
+free() liberar memoria devolviendola al heap
+
+abort() terminar ejecucion de forma anormal
+atexit() registra una funcion callback para la salida del programa
+exit() terminar ejecucion del programa
+
+getenv() recupera variable de entorno
+
+bsearch() busqueda binaria en un array
+qsort() ordenar un vector usando QuickSort
+abs(),labs() valor absoluto
+div(),ldiv() division entera o euclediana
+
