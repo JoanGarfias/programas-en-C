@@ -76,7 +76,7 @@ gboolean on_draw1_draw(GtkDrawingArea *widget, cairo_t *cr)
 		sprintf(szMensaje, "Elementos producidos %d", elem);
 		cairo_show_text(cr, szMensaje);
 	}else if(rol == CONSUMIDOR){
-		sprintf(szMensaje, "Elementos consumidos %d", elem);
+		sprintf(szMensaje, "Elementos consumidos %c", elem);
 		cairo_show_text(cr, szMensaje);
 	}
 	
@@ -85,7 +85,7 @@ gboolean on_draw1_draw(GtkDrawingArea *widget, cairo_t *cr)
 
 void on_btnProductor_clicked()
 {
-	char c='\0';
+	char c= 'a' + (char) rand() % 28;
 	elem++;
 	write(fildes[1], &c, sizeof(char));
 	gtk_widget_queue_draw(draw1);
@@ -94,7 +94,8 @@ void on_btnProductor_clicked()
 void on_btnConsumidor_clicked()
 {
 	char c;
-	elem++;
+	//elem++;
 	read(fildes[0], &c, sizeof(char));
+	elem = c;
 	gtk_widget_queue_draw(draw1);
 }
