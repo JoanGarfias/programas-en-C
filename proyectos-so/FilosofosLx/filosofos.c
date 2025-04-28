@@ -118,8 +118,8 @@ void ini_filosofos(void)
 {
 	int i;
 
-	srand(time(NULL));
-	if(sem_init(&semcomedor, 0, 4) == 0){
+	srand(time(NULL)); //Semilla de aleatoriedad
+	if(sem_init(&semcomedor, 0, 4) == 0){ //Creamos un semaforo, inicia en 0 y maximo llega hasta 4
 		bsem = TRUE;
 	}else{
 		perror("Error en la inicialización del semáforo\n");
@@ -129,7 +129,7 @@ void ini_filosofos(void)
 		filosofos[i].px = 120 + 80 * sin((72*i)/(180/M_PI));
 		filosofos[i].py = 110 + 80 * cos((72*i)/(180/M_PI));
 		filosofos[i].img = img1;
-		pthread_mutex_init(&tenedor[i], NULL);
+		pthread_mutex_init(&tenedor[i], NULL); //Mutex para los tenedores
 	}
 }
 
