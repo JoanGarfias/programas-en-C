@@ -30,16 +30,16 @@ GtkWidget *draw1;
 GtkWidget *btnEjecutar;
 cairo_surface_t *img1, *img2;
 
-void ini_filosofos(void);
+void ini_filosofos(void); /*Estas son void porque debe ser así para el uso de hilos. */
 void *ffilosofo(void *);
-gboolean refrescar(gpointer);
+gboolean refrescar(gpointer); //Esto es parecido a void *, solo que es para compatibilidad
 
 int main(int argc, char *argv[])
 {
     GtkBuilder *builder;
 
     gtk_init(&argc, &argv);
-    
+
     img1 = cairo_image_surface_create_from_png("dormir.png");
     img2 = cairo_image_surface_create_from_png("comer.png");
 
@@ -50,11 +50,11 @@ int main(int argc, char *argv[])
     draw1 = GTK_WIDGET(gtk_builder_get_object(builder, "draw1"));
     btnEjecutar = GTK_WIDGET(gtk_builder_get_object(builder, "btnEjecutar"));
     gtk_builder_connect_signals(builder, NULL);
-    
+
     gtk_widget_show_all(window);
 
     gtk_main();
-    
+
     cairo_surface_destroy(img1);
     cairo_surface_destroy(img2);
     if(bsem){
@@ -77,23 +77,23 @@ void on_btnSalir_clicked()
 gboolean refrescar(gpointer data)
 {
     gtk_widget_queue_draw(GTK_WIDGET(draw1));
-    return FALSE; 
+    return FALSE;
 }
 
 void on_btnEjecutar_clicked()
 {
 	int i;
 	pthread_attr_t attr;
-	
+
 	ini_filosofos();
 	bejecutar = TRUE;
-	
+
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	for(i = 0; i < 5; i++){
 		pthread_create(&hilof[i], &attr, ffilosofo, (void *)&filosofos[i]);
 		//gtk_widget_queue_draw(draw1);
-		g_idle_add(refrescar, NULL);
+		g_idle_add(refrescar, NULL); //Esto manda a ejecutar la función refrescar cuando se desocupe.
 	}
 	gtk_widget_hide(btnEjecutar);
 }
@@ -102,7 +102,7 @@ void on_btnEjecutar_clicked()
 gboolean on_draw1_draw(GtkDrawingArea *widget, cairo_t *cr)
 {
 	int i;
-	
+
 	if(bejecutar){
 		for(i = 0; i < 5; i++){
 			cairo_set_source_surface(cr, filosofos[i].img,
@@ -110,14 +110,14 @@ gboolean on_draw1_draw(GtkDrawingArea *widget, cairo_t *cr)
 			cairo_paint(cr);
 		}
 	}
-	
+
 	return FALSE;
 }
 
 void ini_filosofos(void)
 {
 	int i;
-	
+
 	srand(time(NULL));
 	if(sem_init(&semcomedor, 0, 4) == 0){
 		bsem = TRUE;
@@ -136,7 +136,7 @@ void ini_filosofos(void)
 void *ffilosofo(void *pf)
 {
 	STFILOSOFO *f = (STFILOSOFO *)pf;
-	
+
 	while(TRUE)
 	{
 		usleep(1000000+(int)(2000000*rand()/(RAND_MAX+1.0)));//Dormido
