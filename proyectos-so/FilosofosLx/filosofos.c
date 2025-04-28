@@ -141,14 +141,14 @@ void *ffilosofo(void *pf)
 
 	while(TRUE)
 	{
-		usleep(1000000+(int)(2000000*rand()/(RAND_MAX+1.0)));//Dormido
+		usleep(1000000+(int)(2000000*rand()/(RAND_MAX+1.0))); //Dormido
 		sem_wait(&semcomedor); //Intenta tomar un lugar en el comedor
 		if (f->num % 2 == 0) {
-			pthread_mutex_lock(&tenedor[f->num]);
-			pthread_mutex_lock(&tenedor[(f->num+1)%5]);
+			pthread_mutex_lock(&tenedor[f->num]); //Tenedor izquierdo
+			pthread_mutex_lock(&tenedor[(f->num+1)%5]); //Tenedor derecho
 		} else {
-			pthread_mutex_lock(&tenedor[(f->num+1)%5]);
-			pthread_mutex_lock(&tenedor[f->num]);
+			pthread_mutex_lock(&tenedor[(f->num+1)%5]); //Tenedor derecho
+			pthread_mutex_lock(&tenedor[f->num]); //Tenedor izquierdo
 		}
 		f->img = img2; //Se pone a comer
 		//gtk_widget_queue_draw(draw1);//Se le ve comiendo
