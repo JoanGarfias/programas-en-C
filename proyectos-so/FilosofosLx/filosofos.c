@@ -92,6 +92,8 @@ void on_btnEjecutar_clicked()
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	for(i = 0; i < 5; i++){
 		pthread_create(&hilof[i], &attr, ffilosofo, (void *)&filosofos[i]);
+		/*Le mandamos ffilosofo, que es una función, y filosofos[i] es una estructura de datos,
+		en la función ffilosofo hacemos el casting en su parametro. */
 		//gtk_widget_queue_draw(draw1);
 		g_idle_add(refrescar, NULL); //Esto manda a ejecutar la función refrescar cuando se desocupe.
 	}
