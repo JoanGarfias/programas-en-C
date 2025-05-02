@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
 	
 	sd = socket(AF_INET, SOCK_STREAM, 0);
 	
-	bzero((void *)&server_addr, sizeof(server_addr));
+	bzero((void *)&server_addr, sizeof(server_addr)); //Inicializa todo en cero (tipos de datos)
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_addr.s_addr = inet_addr(argv[3]);
 	server_addr.sin_port = htons(4200); //sirve para comunicar un sistema operativo con otro
