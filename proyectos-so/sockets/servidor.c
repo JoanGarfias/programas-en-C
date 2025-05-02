@@ -29,6 +29,7 @@ int main(void)
 	/*Debemos asegurarnos que no esté ocupado*/
 	bind(sd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 	
+	//Este listen limita a que solo sean 5 peticiones por cada ciclo de reloj
 	listen(sd, 5);
 	size = sizeof(client_addr);
 
