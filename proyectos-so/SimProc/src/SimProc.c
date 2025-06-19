@@ -1,5 +1,5 @@
 /**
- * Compilar: gcc -o SimProc SimProc.c -Wall `pkg-config --cflags --libs gtk+-3.0` -lm -lpthread -export-dynamic
+ * Compilar: gcc -o build/SimProc src/SimProc.c -Wall `pkg-config --cflags --libs gtk+-3.0` -lm -lpthread -export-dynamic
  * */
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
     gtk_init(&argc, &argv);
 
     builder = gtk_builder_new();
-    gtk_builder_add_from_file(builder, "SimProc.glade", NULL);
+    gtk_builder_add_from_file(builder, "../assets/SimProc.glade", NULL);
 
     window = GTK_WIDGET(gtk_builder_get_object(builder, "window"));
     draw = GTK_WIDGET(gtk_builder_get_object(builder, "draw"));
