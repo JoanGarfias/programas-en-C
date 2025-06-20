@@ -80,6 +80,10 @@ int cuantoActual = 0;
 /*Variable global para el proceso en ejecución*/
 PROCESO *procesoEnEjecucion = NULL;
 
+/*Variable global para estadísticas*/
+int procesosTerminados = 0;
+gboolean victoriaSonando = FALSE;
+
 /*Prototipos de funciones*/
 
 void on_window_destroy();
@@ -104,12 +108,11 @@ int obtenerTiempoRestante(PROCESO *);
 int obtenerEstado(PROCESO *);
 int generarTiempoRestante();
 
-gboolean detectarColision(int personajeX, int personajeY, int personajeTamano, 
-                         int procesoX, int procesoY, int procesoRadio);
+gboolean detectarColision(int, int, int, int, int, int);
 
-void *funcionSimulacion(void *arg);
+void *funcionSimulacion(void *);
 
-gboolean reactivarBotonEjecutar(gpointer data);
+gboolean reactivarBotonEjecutar(gpointer);
 
 // Función para reactivar el botón de ejecutar (se ejecuta en el hilo principal)
 gboolean reactivarBotonEjecutar(gpointer data) {
@@ -363,6 +366,8 @@ void on_btnEjecutar_clicked()
     }
     g_timeout_add(500, refrescar, NULL);
     printf("Nueva simulación iniciada con %d procesos\n", NUM_PROCESOS);
+    procesosTerminados = 0;
+    victoriaSonando = FALSE;
 }
 
 void *funcionSimulacion(void *arg) {
@@ -405,6 +410,7 @@ void *funcionSimulacion(void *arg) {
                     aEliminar->estado = ESTADO_TERMINADO;
                     printf("Proceso %d terminado (desde suspendidos)\n", aEliminar->id);
                     reproducirSonidoTerminado();
+                    procesosTerminados++;
                     free(aEliminar);
                     continue;
                 }
@@ -459,6 +465,7 @@ void *funcionSimulacion(void *arg) {
                 printf("Proceso %d terminado\n", proceso->id);
                 reproducirSonidoTerminado();
                 procesoTerminado = TRUE;
+                procesosTerminados++;
             }
             // Descontar tiempo a todos los procesos suspendidos
             PROCESO *prev = NULL;
@@ -481,6 +488,7 @@ void *funcionSimulacion(void *arg) {
                     aEliminar->estado = ESTADO_TERMINADO;
                     printf("Proceso %d terminado (desde suspendidos)\n", aEliminar->id);
                     reproducirSonidoTerminado();
+                    procesosTerminados++;
                     free(aEliminar);
                     continue;
                 }
@@ -575,6 +583,8 @@ gboolean on_draw_key_press_event(GtkDrawingArea *widget, GdkEventKey *event)
     int velocidad = 10;
     int nuevaX = personajeX;
     int nuevaY = personajeY;
+    int anchoPantalla = 640;
+    int altoPantalla = 480;
     switch(event->keyval){
         case GDK_KEY_Left:  case GDK_KEY_A: case GDK_KEY_a:
             nuevaX -= velocidad;
@@ -589,6 +599,16 @@ gboolean on_draw_key_press_event(GtkDrawingArea *widget, GdkEventKey *event)
             nuevaY += velocidad;
             break;
     }
+    // Wrap-around horizontal
+    if(nuevaX < 0)
+        nuevaX = anchoPantalla - personajeTamano/2;
+    if(nuevaX > anchoPantalla - personajeTamano/2)
+        nuevaX = 0;
+    // Wrap-around vertical
+    if(nuevaY < 0)
+        nuevaY = altoPantalla - personajeTamano/2;
+    if(nuevaY > altoPantalla - personajeTamano/2)
+        nuevaY = 0;
     g_mutex_lock(&mutexCola);
     if(idProcesoEnEjecucion >= 0) {
         if(!procesoBloqueado && detectarColision(nuevaX, nuevaY, personajeTamano, posXEjecucion, posYEjecucion, 18)) {
@@ -744,6 +764,28 @@ void dibujarProcesos(cairo_t *cr)
 {
     g_mutex_lock(&mutexCola);
     
+    if (procesosTerminados == NUM_PROCESOS) {
+        if (!victoriaSonando) {
+            reproducirSonidoTerminado();
+            victoriaSonando = TRUE;
+        }
+        
+        cairo_set_source_rgb(cr, 0.1, 0.6, 0.1);
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, 48);
+        cairo_text_extents_t ext;
+        const char *msg = "¡VICTORIA!";
+        cairo_text_extents(cr, msg, &ext);
+        int cx = 320 - ext.width/2;
+        int cy = 240 + ext.height/2;
+        cairo_move_to(cr, cx, cy);
+        cairo_show_text(cr, msg);
+        cairo_new_path(cr);
+        
+        g_mutex_unlock(&mutexCola);
+        return;
+    }
+    
     // Limpiar cualquier trayectoria anterior
     cairo_new_path(cr);
     
@@ -752,8 +794,8 @@ void dibujarProcesos(cairo_t *cr)
     int contador = 0;
     int radio = 20;
     int espaciado = 60;
-    int inicioX = 50;
-    int inicioY = 50;
+    int inicioX = 40;
+    int inicioY = 40;
     cairo_text_extents_t extents;
     // Título de la cola de listos
     cairo_set_source_rgb(cr, 0.1, 0.5, 0.1);
@@ -765,7 +807,7 @@ void dibujarProcesos(cairo_t *cr)
     cairo_new_path(cr);
     while(p != NULL && contador < NUM_PROCESOS) {
         int x = inicioX + (contador * espaciado);
-        int y = inicioY;
+        int y = inicioY + 10;
         
         // Color del círculo según el estado
         switch(p->estado) {
@@ -856,7 +898,7 @@ void dibujarProcesos(cairo_t *cr)
         p = p->siguiente;
     }
     contador = 0;
-    int inicioYSusp = 350;
+    int inicioYSusp = 400;
     cairo_set_source_rgb(cr, 0.5, 0.2, 0.2);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, 14);
@@ -867,7 +909,7 @@ void dibujarProcesos(cairo_t *cr)
     p = obtenerPrimeroEnColaSuspendidos();
     while(p != NULL && contador < NUM_PROCESOS) {
         int x = inicioX + (contador * espaciado);
-        int y = inicioYSusp;
+        int y = inicioYSusp + 10;
         // Color del círculo
         cairo_set_source_rgb(cr, 0.7, 0.3, 0.3); // Rojo apagado
         cairo_arc(cr, x, y, radio, 0, 2 * M_PI);
@@ -888,7 +930,7 @@ void dibujarProcesos(cairo_t *cr)
         cairo_show_text(cr, texto);
         cairo_new_path(cr);
         // Texto del tiempo de suspensión restante
-        snprintf(texto, sizeof(texto), "%d", p->tiempoSuspension);
+        snprintf(texto, sizeof(texto), "%d", p->tiempoRestante);
         cairo_set_font_size(cr, 10);
         cairo_text_extents(cr, texto, &extents);
         cairo_move_to(cr, x - extents.width/2, y + radio + 15);
@@ -929,9 +971,9 @@ void dibujarProcesos(cairo_t *cr)
                 cairo_set_source_rgb(cr, 0.4, 0.4, 0.4);
                 cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
                 cairo_set_font_size(cr, 10);
-                cairo_text_extents(cr, "BLOQUEADO", &extents);
+                cairo_text_extents(cr, "Suspendiendo...", &extents);
                 cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion - radio - 10);
-                cairo_show_text(cr, "BLOQUEADO");
+                cairo_show_text(cr, "Suspendiendo...");
                 cairo_new_path(cr);
             } else {
                 cairo_set_source_rgb(cr, 1, 0, 0);
@@ -970,6 +1012,32 @@ void dibujarProcesos(cairo_t *cr)
     cairo_set_source_rgb(cr, 0, 0, 0);
     cairo_set_line_width(cr, 2);
     cairo_stroke(cr);
+    cairo_new_path(cr);
+    
+    // Estadísticas
+    int countListos = 0, countSuspendidos = 0;
+    p = obtenerPrimeroEnColaListos();
+    while(p != NULL) { countListos++; p = p->siguiente; }
+    p = obtenerPrimeroEnColaSuspendidos();
+    while(p != NULL) { countSuspendidos++; p = p->siguiente; }
+    // Posición de las estadísticas (abajo a la derecha)
+    int statsX = 500;
+    int statsY = 420;
+    cairo_set_source_rgb(cr, 0, 0, 0);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 13);
+    char stats1[64], stats2[64], stats3[64];
+    snprintf(stats1, sizeof(stats1), "Terminados: %d", procesosTerminados);
+    snprintf(stats2, sizeof(stats2), "Listos: %d", countListos);
+    snprintf(stats3, sizeof(stats3), "Suspendidos: %d", countSuspendidos);
+    cairo_move_to(cr, statsX, statsY);
+    cairo_show_text(cr, stats1);
+    cairo_new_path(cr);
+    cairo_move_to(cr, statsX, statsY + 20);
+    cairo_show_text(cr, stats2);
+    cairo_new_path(cr);
+    cairo_move_to(cr, statsX, statsY + 40);
+    cairo_show_text(cr, stats3);
     cairo_new_path(cr);
     
     g_mutex_unlock(&mutexCola);
