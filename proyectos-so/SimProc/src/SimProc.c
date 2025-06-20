@@ -6,8 +6,9 @@
 #define ESTADO_EJECUTANDO 2
 #define ESTADO_BLOQUEADO 3
 #define ESTADO_TERMINADO 4
+#define ESTADO_SUSPENDIDO 5
 
-#define MULTIPLO 5
+#define MULTIPLO 15
  
 #define NUM_PROCESOS 8
 
@@ -31,6 +32,7 @@ typedef struct proc{
     int estado;
     int x;
     int y;
+    int tiempoSuspension; // Tiempo restante en suspensión
     struct proc *siguiente;
 }PROCESO;
 
@@ -68,8 +70,15 @@ GtkWidget *window;
 GtkWidget *draw;
 GtkWidget *btnEjecutar;
 GtkWidget *btnSalir;
-COLA cola;
+COLA colaListos;
+COLA colaSuspendidos;
 gboolean refrescar(gpointer);
+
+/*Variables para el control del cuanto de ejecución*/
+int cuantoActual = 0;
+
+/*Variable global para el proceso en ejecución*/
+PROCESO *procesoEnEjecucion = NULL;
 
 /*Prototipos de funciones*/
 
@@ -82,9 +91,13 @@ gboolean on_draw_key_press_event(GtkDrawingArea *, GdkEventKey *);
 void iniciarSimulacion();
 void dibujarProcesos(cairo_t *);
 
-void encolar(PROCESO *);
-PROCESO *desencolar();
-PROCESO *obtenerPrimeroEnCola();
+void encolarListos(PROCESO *);
+PROCESO *desencolarListos();
+PROCESO *obtenerPrimeroEnColaListos();
+
+void encolarSuspendidos(PROCESO *);
+PROCESO *desencolarSuspendidos();
+PROCESO *obtenerPrimeroEnColaSuspendidos();
 
 void crearProceso(PROCESO *, int, int, int, int, int);
 int obtenerTiempoRestante(PROCESO *);
@@ -294,7 +307,7 @@ void on_window_destroy()
     gtk_main_quit();
     int i;
     for(i = 0; i < NUM_PROCESOS; i++){
-        PROCESO *proceso = desencolar();
+        PROCESO *proceso = desencolarListos();
         if(proceso != NULL)
             free(proceso);
     }
@@ -314,46 +327,41 @@ gboolean refrescar(gpointer data)
 void on_btnEjecutar_clicked()
 {
     gtk_widget_hide(btnEjecutar);
-    
-    // Si ya hay una simulación activa, esperar a que termine el hilo anterior
     if(simulacionActiva) {
         simulacionActiva = FALSE;
         if(pthread_join(hiloSimulacion, NULL) != 0) {
             fprintf(stderr, "Error al esperar el hilo de simulación anterior\n");
         }
     }
-    
-    // Limpiar la cola existente si hay procesos
     g_mutex_lock(&mutexCola);
-    while(cola.primero != NULL) {
-        PROCESO *p = desencolar();
+    while(colaListos.primero != NULL) {
+        PROCESO *p = desencolarListos();
+        if(p != NULL) {
+            free(p);
+        }
+    }
+    while(colaSuspendidos.primero != NULL) {
+        PROCESO *p = desencolarSuspendidos();
         if(p != NULL) {
             free(p);
         }
     }
     g_mutex_unlock(&mutexCola);
-    
-    // Reinicializar mutex
     g_mutex_clear(&mutexCola);
     g_mutex_init(&mutexCola);
-    
     simulacionActiva = TRUE;
-    
     int i;
     for(i=0; i < NUM_PROCESOS; i++){
         PROCESO *proceso = (PROCESO *)malloc(sizeof(PROCESO));
         crearProceso(proceso, i, generarTiempoRestante(), ESTADO_LISTO, 10, 10);
-        encolar(proceso);
+        proceso->tiempoSuspension = 0;
+        encolarListos(proceso);
     }
-
     if(pthread_create(&hiloSimulacion, NULL, funcionSimulacion, NULL) != 0) {
         fprintf(stderr, "Error al crear el hilo de simulación\n");
         return;
     }
-    
-    // Configurar un temporizador para actualizar la interfaz
     g_timeout_add(500, refrescar, NULL);
-    
     printf("Nueva simulación iniciada con %d procesos\n", NUM_PROCESOS);
 }
 
@@ -361,90 +369,191 @@ void *funcionSimulacion(void *arg) {
     int i;
     while(simulacionActiva) {
         g_mutex_lock(&mutexCola);
-        
-        // Si hay un proceso bloqueado, no permitir que otros procesos se ejecuten
-        if(procesoBloqueado && idProcesoEnEjecucion >= 0) {
+        // Si ya hay un proceso en ejecución, esperar a que termine
+        if(idProcesoEnEjecucion >= 0) {
             g_mutex_unlock(&mutexCola);
-            g_usleep(500000);  // Esperar 0.5 segundos
+            g_usleep(500000);
             continue;
         }
-        
-        if(cola.primero == NULL){
-            printf("Cola vacía - Simulación terminada\n");
+        // Si no hay procesos en listos ni suspendidos, terminar
+        if(colaListos.primero == NULL && colaSuspendidos.primero == NULL){
+            printf("Colas vacías - Simulación terminada\n");
             g_mutex_unlock(&mutexCola);
-            
-            // Reactivar el botón de ejecutar en el hilo principal
             g_idle_add((GSourceFunc)reactivarBotonEjecutar, NULL);
             break;
         }
-
-        PROCESO *proceso = desencolar();
+        // Si no hay listos pero sí suspendidos, descuenta tiempo a los suspendidos
+        if(colaListos.primero == NULL && colaSuspendidos.primero != NULL){
+            // Descontar tiempo a todos los procesos suspendidos
+            PROCESO *prev = NULL;
+            PROCESO *curr = colaSuspendidos.primero;
+            while(curr != NULL) {
+                curr->tiempoSuspension--;
+                curr->tiempoRestante--;
+                if(curr->tiempoRestante <= 0) {
+                    // Proceso terminado
+                    PROCESO *aEliminar = curr;
+                    if(prev == NULL) {
+                        colaSuspendidos.primero = curr->siguiente;
+                    } else {
+                        prev->siguiente = curr->siguiente;
+                    }
+                    if(curr == colaSuspendidos.ultimo) {
+                        colaSuspendidos.ultimo = prev;
+                    }
+                    curr = curr->siguiente;
+                    aEliminar->estado = ESTADO_TERMINADO;
+                    printf("Proceso %d terminado (desde suspendidos)\n", aEliminar->id);
+                    reproducirSonidoTerminado();
+                    free(aEliminar);
+                    continue;
+                }
+                if(curr->tiempoSuspension <= 0) {
+                    // Volver a listos
+                    PROCESO *aMover = curr;
+                    if(prev == NULL) {
+                        colaSuspendidos.primero = curr->siguiente;
+                    } else {
+                        prev->siguiente = curr->siguiente;
+                    }
+                    if(curr == colaSuspendidos.ultimo) {
+                        colaSuspendidos.ultimo = prev;
+                    }
+                    curr = curr->siguiente;
+                    aMover->estado = ESTADO_LISTO;
+                    aMover->tiempoSuspension = 0;
+                    encolarListos(aMover);
+                    continue;
+                }
+                prev = curr;
+                curr = curr->siguiente;
+            }
+            g_mutex_unlock(&mutexCola);
+            g_usleep(500000);
+            continue;
+        }
+        PROCESO *proceso = desencolarListos();
         if(proceso == NULL) {
             g_mutex_unlock(&mutexCola);
             continue;
         }
         proceso->estado = ESTADO_EJECUTANDO;
-        
-        // Actualizar información del proceso en ejecución
         idProcesoEnEjecucion = proceso->id;
+        procesoEnEjecucion = proceso;
         tiempoProcesoEnEjecucion = proceso->tiempoRestante;
-        posXEjecucion = 50 + (rand() % 600);  // Posición X aleatoria entre 50 y 650
-        posYEjecucion = 50 + (rand() % 400);  // Posición Y aleatoria entre 50 y 450
-        
-        // Reproducir sonido de proceso en ejecución
+        posXEjecucion = 50 + (rand() % 600);
+        posYEjecucion = 200;
+        cuantoActual = 0;
         reproducirSonidoEjecucion();
-        
         g_mutex_unlock(&mutexCola);
-
         gboolean procesoTerminado = FALSE;
-        for(i = 0; i < 15 && simulacionActiva && !procesoTerminado; i++){
+        int cuanto = 15;
+        for(i = 0; i < cuanto && simulacionActiva && !procesoTerminado; i++){
+            g_mutex_lock(&mutexCola);
+            // Descontar tiempo al proceso en ejecución
             proceso->tiempoRestante--;
-            tiempoProcesoEnEjecucion = proceso->tiempoRestante;  // Actualizar tiempo en ejecución
+            tiempoProcesoEnEjecucion = proceso->tiempoRestante;
+            cuantoActual = i+1;
             if(proceso->tiempoRestante <= 0){
                 proceso->estado = ESTADO_TERMINADO;
                 printf("Proceso %d terminado\n", proceso->id);
-                
-                // Reproducir sonido de proceso terminado
                 reproducirSonidoTerminado();
-                
                 procesoTerminado = TRUE;
             }
-            g_usleep(500000);  // 0.5 segundos en microsegundos
+            // Descontar tiempo a todos los procesos suspendidos
+            PROCESO *prev = NULL;
+            PROCESO *curr = colaSuspendidos.primero;
+            while(curr != NULL) {
+                curr->tiempoSuspension--;
+                curr->tiempoRestante--;
+                if(curr->tiempoRestante <= 0) {
+                    // Proceso terminado
+                    PROCESO *aEliminar = curr;
+                    if(prev == NULL) {
+                        colaSuspendidos.primero = curr->siguiente;
+                    } else {
+                        prev->siguiente = curr->siguiente;
+                    }
+                    if(curr == colaSuspendidos.ultimo) {
+                        colaSuspendidos.ultimo = prev;
+                    }
+                    curr = curr->siguiente;
+                    aEliminar->estado = ESTADO_TERMINADO;
+                    printf("Proceso %d terminado (desde suspendidos)\n", aEliminar->id);
+                    reproducirSonidoTerminado();
+                    free(aEliminar);
+                    continue;
+                }
+                if(curr->tiempoSuspension <= 0) {
+                    // Volver a listos
+                    PROCESO *aMover = curr;
+                    if(prev == NULL) {
+                        colaSuspendidos.primero = curr->siguiente;
+                    } else {
+                        prev->siguiente = curr->siguiente;
+                    }
+                    if(curr == colaSuspendidos.ultimo) {
+                        colaSuspendidos.ultimo = prev;
+                    }
+                    curr = curr->siguiente;
+                    aMover->estado = ESTADO_LISTO;
+                    aMover->tiempoSuspension = 0;
+                    encolarListos(aMover);
+                    continue;
+                }
+                prev = curr;
+                curr = curr->siguiente;
+            }
+            // Si el proceso fue suspendido por colisión
+            if(proceso->estado == ESTADO_SUSPENDIDO) {
+                proceso->tiempoSuspension = cuanto - i;
+                int posSusp = 0;
+                PROCESO *tmp = colaSuspendidos.primero;
+                while(tmp != NULL) {
+                    posSusp++;
+                    tmp = tmp->siguiente;
+                }
+                proceso->x = 50 + (posSusp * 60);
+                proceso->y = 350;
+                encolarSuspendidos(proceso);
+                idProcesoEnEjecucion = -1;
+                procesoEnEjecucion = NULL;
+                procesoBloqueado = FALSE;
+                g_mutex_unlock(&mutexCola);
+                break;
+            }
+            g_mutex_unlock(&mutexCola);
+            g_usleep(500000);
         }
-
         g_mutex_lock(&mutexCola);
         if(procesoTerminado) {
             free(proceso);
-            idProcesoEnEjecucion = -1;  // No hay proceso en ejecución
-            procesoBloqueado = FALSE;   // Limpiar estado bloqueado
-        } else if(simulacionActiva) {
+            idProcesoEnEjecucion = -1;
+            procesoEnEjecucion = NULL;
+            procesoBloqueado = FALSE;
+        } else if(proceso->estado != ESTADO_SUSPENDIDO && simulacionActiva) {
             proceso->estado = ESTADO_LISTO;
-            encolar(proceso);
-            idProcesoEnEjecucion = -1;  // No hay proceso en ejecución
-            procesoBloqueado = FALSE;   // Limpiar estado bloqueado
-        }
-
-        // Imprimir estado de la cola
-        printf("\nCola de procesos:\n");
-        PROCESO *p = obtenerPrimeroEnCola();
-        while(p != NULL){
-            printf("Proceso %d : \n\tDirección %p\n\tEstado %d\n\tTiempo restante %d\n", 
-                   p->id, (void*)p, p->estado, p->tiempoRestante);
-            p = p->siguiente;
+            encolarListos(proceso);
+            idProcesoEnEjecucion = -1;
+            procesoEnEjecucion = NULL;
+            procesoBloqueado = FALSE;
         }
         g_mutex_unlock(&mutexCola);
     }
-
-    // Limpieza final de la cola si la simulación termina
     g_mutex_lock(&mutexCola);
-    while(cola.primero != NULL) {
-        PROCESO *p = desencolar();
+    while(colaListos.primero != NULL) {
+        PROCESO *p = desencolarListos();
+        if(p != NULL) {
+            free(p);
+        }
+    }
+    while(colaSuspendidos.primero != NULL) {
+        PROCESO *p = desencolarSuspendidos();
         if(p != NULL) {
             free(p);
         }
     }
     g_mutex_unlock(&mutexCola);
-    
     return NULL;
 }
 
@@ -463,56 +572,48 @@ gboolean on_draw_draw(GtkDrawingArea *widget, cairo_t *cr)
 gboolean on_draw_key_press_event(GtkDrawingArea *widget, GdkEventKey *event)
 {
     gboolean bCambio = FALSE;
-    int velocidad = 10;  // Píxeles por movimiento
+    int velocidad = 10;
     int nuevaX = personajeX;
     int nuevaY = personajeY;
-
     switch(event->keyval){
         case GDK_KEY_Left:  case GDK_KEY_A: case GDK_KEY_a:
             nuevaX -= velocidad;
             break;
-
         case GDK_KEY_Right: case GDK_KEY_D: case GDK_KEY_d:
             nuevaX += velocidad;
             break;
-
         case GDK_KEY_Up:    case GDK_KEY_W: case GDK_KEY_w:
             nuevaY -= velocidad;
             break;
-
         case GDK_KEY_Down:  case GDK_KEY_S: case GDK_KEY_s:
             nuevaY += velocidad;
             break;
     }
-
-    // Verificar colisión solo si hay un proceso en ejecución y no está bloqueado
-    if(idProcesoEnEjecucion >= 0 && !procesoBloqueado) {
-        if(detectarColision(nuevaX, nuevaY, personajeTamano, posXEjecucion, posYEjecucion, 18)) {
-            printf("¡COLISIÓN! Proceso %d bloqueado\n", idProcesoEnEjecucion);
+    g_mutex_lock(&mutexCola);
+    if(idProcesoEnEjecucion >= 0) {
+        if(!procesoBloqueado && detectarColision(nuevaX, nuevaY, personajeTamano, posXEjecucion, posYEjecucion, 18)) {
+            printf("¡COLISIÓN! Proceso %d suspendido\n", idProcesoEnEjecucion);
             procesoBloqueado = TRUE;
-            
-            // Reproducir sonido de proceso bloqueado
+            if(procesoEnEjecucion != NULL) {
+                procesoEnEjecucion->estado = ESTADO_SUSPENDIDO;
+            }
             reproducirSonidoBloqueado();
-            
             bCambio = TRUE;
         } else {
-            // Solo mover si no hay colisión
             personajeX = nuevaX;
             personajeY = nuevaY;
             bCambio = TRUE;
         }
     } else {
-        // Si no hay proceso en ejecución o ya está bloqueado, mover normalmente
         personajeX = nuevaX;
         personajeY = nuevaY;
         bCambio = TRUE;
     }
-
+    g_mutex_unlock(&mutexCola);
     if(bCambio) {
         printf("Personaje en (%d, %d)\n", personajeX, personajeY);
         gtk_widget_queue_draw(GTK_WIDGET(draw));
     }
-
     return bCambio;
 }
 
@@ -521,12 +622,12 @@ gboolean on_draw_key_press_event(GtkDrawingArea *widget, GdkEventKey *event)
 void iniciarSimulacion(){
     int i;
     while(1){
-        if(cola.primero == NULL){
+        if(colaListos.primero == NULL){
             printf("Cola vacía\n");
             break;
         }
 
-        PROCESO *proceso = desencolar();
+        PROCESO *proceso = desencolarListos();
         if(proceso != NULL){
             proceso->estado = ESTADO_EJECUTANDO;
             for(i = 0; i < 15; i++){
@@ -540,12 +641,12 @@ void iniciarSimulacion(){
                 sleep(1);
             }
             if(proceso->estado != ESTADO_TERMINADO){
-                encolar(proceso);
+                encolarListos(proceso);
             }
         }
 
         printf("\nCola de procesos:\n");
-        PROCESO *p = obtenerPrimeroEnCola();
+        PROCESO *p = obtenerPrimeroEnColaListos();
         while(p != NULL){
             printf("Proceso %d con dirección %p\n", p->id, p);
             p = p->siguiente;
@@ -555,52 +656,79 @@ void iniciarSimulacion(){
 
 /*Lógica de la cola*/
 
-void encolar(PROCESO *nuevo) {
+void encolarListos(PROCESO *nuevo) {
     if(nuevo == NULL) return;
-    
     nuevo->siguiente = NULL;
-    if(cola.primero == NULL && cola.ultimo == NULL){ //Es el primero en insertarse
-        cola.primero = nuevo;
-        cola.ultimo = nuevo;
-    } 
-    else{
-        cola.ultimo->siguiente = nuevo;
-        cola.ultimo = nuevo;
+    if(colaListos.primero == NULL && colaListos.ultimo == NULL){
+        colaListos.primero = nuevo;
+        colaListos.ultimo = nuevo;
+    } else {
+        colaListos.ultimo->siguiente = nuevo;
+        colaListos.ultimo = nuevo;
     }
 }
 
-PROCESO *desencolar() {
-    if(cola.primero == NULL){
+PROCESO *desencolarListos() {
+    if(colaListos.primero == NULL){
         return NULL;
     }
-    PROCESO *desencolado = cola.primero;
-    cola.primero = desencolado->siguiente;
-    desencolado->siguiente = NULL; // Importante: desvinculamos el proceso de la cola
-    if(cola.primero == NULL){ //Si el nodo que desencolaremos era el ultimo en la cola, actualizamos el ultimo
-        cola.ultimo = NULL;
+    PROCESO *desencolado = colaListos.primero;
+    colaListos.primero = desencolado->siguiente;
+    desencolado->siguiente = NULL;
+    if(colaListos.primero == NULL){
+        colaListos.ultimo = NULL;
     }
     return desencolado;
 }
 
-PROCESO *obtenerPrimeroEnCola(){
-    return cola.primero;
+void encolarSuspendidos(PROCESO *nuevo) {
+    if(nuevo == NULL) return;
+    nuevo->siguiente = NULL;
+    if(colaSuspendidos.primero == NULL && colaSuspendidos.ultimo == NULL){
+        colaSuspendidos.primero = nuevo;
+        colaSuspendidos.ultimo = nuevo;
+    } else {
+        colaSuspendidos.ultimo->siguiente = nuevo;
+        colaSuspendidos.ultimo = nuevo;
+    }
+}
+
+PROCESO *desencolarSuspendidos() {
+    if(colaSuspendidos.primero == NULL){
+        return NULL;
+    }
+    PROCESO *desencolado = colaSuspendidos.primero;
+    colaSuspendidos.primero = desencolado->siguiente;
+    desencolado->siguiente = NULL;
+    if(colaSuspendidos.primero == NULL){
+        colaSuspendidos.ultimo = NULL;
+    }
+    return desencolado;
+}
+
+PROCESO *obtenerPrimeroEnColaListos(){
+    return colaListos.primero;
+}
+
+PROCESO *obtenerPrimeroEnColaSuspendidos(){
+    return colaSuspendidos.primero;
 }
 
 /*Lógica de los procesos*/
 
 int generarTiempoRestante(){
     int escalador = rand() % 5; //Escalador de 0 a 4 para multiplicar el tiempo restante
-    return 5 + (escalador * MULTIPLO);
+    return 30 + (escalador * MULTIPLO);
 }
 
 void crearProceso(PROCESO *proceso, int id, int tiempoRestante, int estado, int x, int y){
     if(proceso == NULL) return;
-    
     proceso->id = id;
     proceso->tiempoRestante = tiempoRestante;
     proceso->estado = estado;
     proceso->x = x;
     proceso->y = y;
+    proceso->tiempoSuspension = 0;
     proceso->siguiente = NULL;
 }
 
@@ -619,14 +747,22 @@ void dibujarProcesos(cairo_t *cr)
     // Limpiar cualquier trayectoria anterior
     cairo_new_path(cr);
     
-    PROCESO *p = obtenerPrimeroEnCola();
+    // --- DIBUJAR COLA DE LISTOS ---
+    PROCESO *p = obtenerPrimeroEnColaListos();
     int contador = 0;
-    int radio = 20;  // Radio más pequeño
-    int espaciado = 60;  // Espaciado reducido
+    int radio = 20;
+    int espaciado = 60;
     int inicioX = 50;
-    int inicioY = 50;  // Centrado verticalmente
-    cairo_text_extents_t extents;  // Declarar extents al inicio de la función
-    
+    int inicioY = 50;
+    cairo_text_extents_t extents;
+    // Título de la cola de listos
+    cairo_set_source_rgb(cr, 0.1, 0.5, 0.1);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 14);
+    cairo_text_extents(cr, "COLA DE LISTOS", &extents);
+    cairo_move_to(cr, inicioX, inicioY - 20);
+    cairo_show_text(cr, "COLA DE LISTOS");
+    cairo_new_path(cr);
     while(p != NULL && contador < NUM_PROCESOS) {
         int x = inicioX + (contador * espaciado);
         int y = inicioY;
@@ -712,114 +848,116 @@ void dibujarProcesos(cairo_t *cr)
         contador++;
     }
     
-    // Dibujar el proceso en ejecución si existe
-    if(idProcesoEnEjecucion >= 0) {
-        int radio = 18;  // Más pequeño que antes
-        
-        // Color según si está bloqueado o no
-        if(procesoBloqueado) {
-            cairo_set_source_rgb(cr, 0.6, 0.6, 0.6); // Gris para bloqueado
-        } else {
-            cairo_set_source_rgb(cr, 1.0, 0.6, 0.0); // Naranja para ejecutando
-        }
-        
-        // Dibujar el círculo
-        cairo_arc(cr, posXEjecucion, posYEjecucion, radio, 0, 2 * M_PI);
-        cairo_fill_preserve(cr);
-        
-        // Borde negro más grueso
-        cairo_set_source_rgb(cr, 0, 0, 0);
-        cairo_set_line_width(cr, 3);
-        cairo_stroke(cr);
-        cairo_new_path(cr);
-        
-        // Texto según el estado
-        if(procesoBloqueado) {
-            cairo_set_source_rgb(cr, 0.4, 0.4, 0.4);
-            cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-            cairo_set_font_size(cr, 10);
-            cairo_text_extents(cr, "BLOQUEADO", &extents);
-            cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion - radio - 10);
-            cairo_show_text(cr, "BLOQUEADO");
-            cairo_new_path(cr);
-        } else {
-            cairo_set_source_rgb(cr, 1, 0, 0);
-            cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-            cairo_set_font_size(cr, 10);
-            cairo_text_extents(cr, "EJECUTANDO", &extents);
-            cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion - radio - 10);
-            cairo_show_text(cr, "EJECUTANDO");
-            cairo_new_path(cr);
-        }
-        
-        // Texto del ID del proceso
-        char texto[50];
-        snprintf(texto, sizeof(texto), "P%d", idProcesoEnEjecucion);
-        
-        cairo_set_source_rgb(cr, 0, 0, 0);
-        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-        cairo_set_font_size(cr, 14);
-        
-        cairo_text_extents(cr, texto, &extents);
-        cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion + extents.height/2);
-        cairo_show_text(cr, texto);
-        cairo_new_path(cr);
-        
-        // Texto del tiempo restante
-        snprintf(texto, sizeof(texto), "%d", tiempoProcesoEnEjecucion);
-        cairo_set_font_size(cr, 12);
-        cairo_text_extents(cr, texto, &extents);
-        cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion + radio + 15);
-        cairo_show_text(cr, texto);
-        cairo_new_path(cr);
+    // --- DIBUJAR COLA DE SUSPENDIDOS ---
+    p = obtenerPrimeroEnColaSuspendidos();
+    printf("Cola de suspendidos:\n");
+    while(p != NULL){
+        printf("Proceso %d con dirección %p\n", p->id, p);
+        p = p->siguiente;
     }
-    
-    // Dibujar sección de procesos bloqueados (diseño agradable con tonos grises)
-    if(procesoBloqueado && idProcesoEnEjecucion >= 0) {
-        // Fondo de la sección bloqueados
-        cairo_set_source_rgb(cr, 0.95, 0.95, 0.95); // Gris muy claro
-        cairo_rectangle(cr, 50, 500, 600, 100);
+    contador = 0;
+    int inicioYSusp = 350;
+    cairo_set_source_rgb(cr, 0.5, 0.2, 0.2);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 14);
+    cairo_text_extents(cr, "COLA DE SUSPENDIDOS", &extents);
+    cairo_move_to(cr, inicioX, inicioYSusp - 20);
+    cairo_show_text(cr, "COLA DE SUSPENDIDOS");
+    cairo_new_path(cr);
+    p = obtenerPrimeroEnColaSuspendidos();
+    while(p != NULL && contador < NUM_PROCESOS) {
+        int x = inicioX + (contador * espaciado);
+        int y = inicioYSusp;
+        // Color del círculo
+        cairo_set_source_rgb(cr, 0.7, 0.3, 0.3); // Rojo apagado
+        cairo_arc(cr, x, y, radio, 0, 2 * M_PI);
         cairo_fill_preserve(cr);
-        
-        // Borde de la sección
-        cairo_set_source_rgb(cr, 0.7, 0.7, 0.7);
+        // Borde negro
+        cairo_set_source_rgb(cr, 0, 0, 0);
         cairo_set_line_width(cr, 2);
         cairo_stroke(cr);
         cairo_new_path(cr);
-        
-        // Título de la sección
-        cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+        // Texto del ID
+        char texto[50];
+        snprintf(texto, sizeof(texto), "P%d", p->id);
+        cairo_set_source_rgb(cr, 0, 0, 0);
         cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-        cairo_set_font_size(cr, 16);
-        cairo_text_extents(cr, "PROCESO BLOQUEADO", &extents);
-        cairo_move_to(cr, 350 - extents.width/2, 520);
-        cairo_show_text(cr, "PROCESO BLOQUEADO");
-        cairo_new_path(cr);
-        
-        // Información del proceso bloqueado
-        char texto[100];
-        snprintf(texto, sizeof(texto), "Proceso P%d - Tiempo restante: %d - Posición: (%d, %d)", 
-                idProcesoEnEjecucion, tiempoProcesoEnEjecucion, posXEjecucion, posYEjecucion);
-        
-        cairo_set_source_rgb(cr, 0.5, 0.5, 0.5);
         cairo_set_font_size(cr, 12);
         cairo_text_extents(cr, texto, &extents);
-        cairo_move_to(cr, 350 - extents.width/2, 540);
+        cairo_move_to(cr, x - extents.width/2, y + extents.height/2);
         cairo_show_text(cr, texto);
         cairo_new_path(cr);
-        
-        // Mensaje informativo
-        cairo_set_source_rgb(cr, 0.6, 0.6, 0.6);
+        // Texto del tiempo de suspensión restante
+        snprintf(texto, sizeof(texto), "%d", p->tiempoSuspension);
         cairo_set_font_size(cr, 10);
-        cairo_text_extents(cr, "El proceso continuará ejecutándose hasta completar su tiempo", &extents);
-        cairo_move_to(cr, 350 - extents.width/2, 560);
-        cairo_show_text(cr, "El proceso continuará ejecutándose hasta completar su tiempo");
+        cairo_text_extents(cr, texto, &extents);
+        cairo_move_to(cr, x - extents.width/2, y + radio + 15);
+        cairo_show_text(cr, texto);
         cairo_new_path(cr);
-        
-        cairo_text_extents(cr, "Ningún otro proceso podrá ejecutarse hasta que termine", &extents);
-        cairo_move_to(cr, 350 - extents.width/2, 575);
-        cairo_show_text(cr, "Ningún otro proceso podrá ejecutarse hasta que termine");
-        cairo_new_path(cr);
+        p->x = x;
+        p->y = y;
+        p = p->siguiente;
+        contador++;
+    }
+    
+    // Dibujar el proceso en ejecución si existe
+    if(idProcesoEnEjecucion >= 0) {
+        // Verificar que el proceso en ejecución no esté en la cola de bloqueados
+        gboolean enBloqueados = FALSE;
+        PROCESO *ps = obtenerPrimeroEnColaSuspendidos();
+        while(ps != NULL) {
+            if(ps->id == idProcesoEnEjecucion) {
+                enBloqueados = TRUE;
+                break;
+            }
+            ps = ps->siguiente;
+        }
+        if(!enBloqueados) {
+            int radio = 18;
+            if(procesoBloqueado) {
+                cairo_set_source_rgb(cr, 0.6, 0.6, 0.6);
+            } else {
+                cairo_set_source_rgb(cr, 1.0, 0.6, 0.0);
+            }
+            cairo_arc(cr, posXEjecucion, posYEjecucion, radio, 0, 2 * M_PI);
+            cairo_fill_preserve(cr);
+            cairo_set_source_rgb(cr, 0, 0, 0);
+            cairo_set_line_width(cr, 3);
+            cairo_stroke(cr);
+            cairo_new_path(cr);
+            if(procesoBloqueado) {
+                cairo_set_source_rgb(cr, 0.4, 0.4, 0.4);
+                cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+                cairo_set_font_size(cr, 10);
+                cairo_text_extents(cr, "BLOQUEADO", &extents);
+                cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion - radio - 10);
+                cairo_show_text(cr, "BLOQUEADO");
+                cairo_new_path(cr);
+            } else {
+                cairo_set_source_rgb(cr, 1, 0, 0);
+                cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+                cairo_set_font_size(cr, 10);
+                cairo_text_extents(cr, "EJECUTANDO", &extents);
+                cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion - radio - 10);
+                cairo_show_text(cr, "EJECUTANDO");
+                cairo_new_path(cr);
+            }
+            char texto[50];
+            snprintf(texto, sizeof(texto), "P%d", idProcesoEnEjecucion);
+            cairo_set_source_rgb(cr, 0, 0, 0);
+            cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, 14);
+            cairo_text_extents(cr, texto, &extents);
+            cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion + extents.height/2);
+            cairo_show_text(cr, texto);
+            cairo_new_path(cr);
+            snprintf(texto, sizeof(texto), "%d", tiempoProcesoEnEjecucion);
+            cairo_set_font_size(cr, 12);
+            cairo_text_extents(cr, texto, &extents);
+            cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion + radio + 15);
+            cairo_show_text(cr, texto);
+            cairo_new_path(cr);
+        }
     }
     
     // Dibujar el personaje controlable (cuadrado morado)
