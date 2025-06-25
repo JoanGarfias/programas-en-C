@@ -47,6 +47,7 @@ typedef struct proc {
     int id;                    // Identificador único
     int tiempoRestante;        // Tiempo que le queda
     int estado;               // En qué estado está
+    int quantumRestante;      // Quantum restante
     struct proc *siguiente;   // Para la cola
 } PROCESO;
 ```
