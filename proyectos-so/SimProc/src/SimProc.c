@@ -21,6 +21,7 @@
 #define ESTADO_BLOQUEADO 3
 #define ESTADO_TERMINADO 4
 #define ESTADO_SUSPENDIDO 5
+
 #define MULTIPLO 15
 #define NUM_PROCESOS 8
 
@@ -32,7 +33,7 @@ typedef struct proc {
     int x;
     int y;
     int tiempoSuspension;
-    int quantumRestante; // Quantum restante para este proceso
+    int quantumRestante;
     struct proc *siguiente;
 } PROCESO;
 
@@ -823,9 +824,9 @@ void dibujarProcesos(cairo_t *cr) {
                 cairo_set_source_rgb(cr, 0.4, 0.4, 0.4);
                 cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
                 cairo_set_font_size(cr, 10);
-                cairo_text_extents(cr, "BLOQUEADO", &extents);
+                cairo_text_extents(cr, "Suspendiendo...", &extents);
                 cairo_move_to(cr, posXEjecucion - extents.width/2, posYEjecucion - radio - 10);
-                cairo_show_text(cr, "BLOQUEADO");
+                cairo_show_text(cr, "Suspendiendo...");
                 cairo_new_path(cr);
             } else {
                 cairo_set_source_rgb(cr, 1, 0, 0);
