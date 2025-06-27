@@ -60,5 +60,5 @@
   - Estados de procesos
   - Killer en acción
   - Código fuente
-- [ ] Participación equitativa de ambos miembros
-- [ ] Subir a YouTube (modo público o no listado)
+- [x] Participación equitativa de ambos miembros
+- [x] Subir a YouTube (modo público o no listado)

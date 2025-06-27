@@ -494,4 +494,4 @@ gcc -o build/SimProc src/SimProc.c -Wall \
 
 SimProc es un proyecto educativo completo que demuestra conceptos fundamentales de sistemas operativos de manera interactiva y visual. Combina teoría de planificación de procesos con implementación práctica, proporcionando una herramienta valiosa para el aprendizaje de conceptos de concurrencia, sincronización y gestión de procesos.
 
-El proyecto utiliza tecnologías modernas como GTK+3 y GStreamer, demostrando cómo implementar sistemas complejos en C con interfaces gráficas profesionales y efectos multimedia. 
+El proyecto utiliza tecnologías modernas como GTK+3 y GStreamer, demostrando cómo implementar sistemas complejos en C con interfaces gráficas y efectos multimedia. 
