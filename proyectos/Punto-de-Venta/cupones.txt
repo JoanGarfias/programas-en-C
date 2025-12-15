@@ -1,0 +1,4 @@
+50 905-A usos 9 0 0 0
+35 HOLAMUNDO usos 13 0 0 0
+30 vacaciones usos 5 0 0 0
+99 12345 usos 9 0 0 0
