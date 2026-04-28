@@ -9,14 +9,70 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define ESCRITOR 1
+#define LECTOR 2
+
 gchar szRol[64] = "Iniciando...";
+
+int numproc = 5;
+int rol = ESCRITOR;
+
 GtkWidget *window;
 GtkWidget *draw1;
 
+cairo_surface_t *imgesc, *imglec, *imgesp, *imgact;
+
+
+int cambioderol(void *p){
+    int ale;
+    ale = 1 + (int) (10.0 * rand() / (RAND_MAX + 1.0));
+
+    if(ale <= 9){
+        rol = LECTOR;
+        sprintf(szRol, "Lector activo %d", ale);
+    }else{
+        rol = ESCRITOR;
+        sprintf(szRol, "Se va solicitar escritura %d", ale);
+    }
+
+    gtk_widget_queue_draw(draw1);
+    return TRUE;
+}
+
 int main(int argc, char *argv[]){
+
+    pid_t pid;
+    int i, ale;
     GtkBuilder *builder;
 
+    for(i=0; i < numproc; i++){
+        pid = fork();
+        if(pid == -1){
+            printf("Error al crear el proceso hijo\n");
+            break;
+        }
+        else if(pid != 0){
+            break;
+        }
+    }
+
+    srand((unsigned int) pid * 2);
+    ale = 1 + (int) (10.0 * rand() / (RAND_MAX + 1.0));
+    if(ale <= 9){
+        rol = LECTOR;
+        sprintf(szRol, "Lector activo %d", ale);
+    }else{
+        rol = ESCRITOR;
+        sprintf(szRol, "Se va solicitar escritura %d", ale);
+    }
+
     gtk_init(&argc, &argv);
+
+    imgesc = cairo_image_surface_create_from_png("esc.png");
+    imglec = cairo_image_surface_create_from_png("lec.png");
+    imgesp = cairo_image_surface_create_from_png("esp.png");
+
+    imgact = imglec;
 
     builder = gtk_builder_new();
 
@@ -29,7 +85,13 @@ int main(int argc, char *argv[]){
 
     gtk_widget_show(window);
 
+    gdk_threads_add_timeout(1000, cambioderol, NULL);
+
     gtk_main();
+
+    cairo_surface_destroy(imgesc);
+    cairo_surface_destroy(imglec);
+    cairo_surface_destroy(imgesp);
 
     return 0;
 }
@@ -46,8 +108,19 @@ gboolean on_draw1_draw(GtkDrawingArea *widget, cairo_t *cr){
     cairo_set_source_rgb(cr, 0.5, 0.5, 1.0);
     cairo_select_font_face(cr, "Purisa", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, 18);
+
+    if (rol == ESCRITOR){
+        imgact = imgesc;
+    }
+    else{
+        imgact = imglec;
+    }
+
     cairo_translate(cr, 10, 20);
     cairo_show_text(cr, szRol);
+
+    cairo_set_source_surface(cr, imgact, 20, 50);
+    cairo_paint(cr);
 
     return FALSE;
 }
