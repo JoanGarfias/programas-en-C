@@ -17,6 +17,10 @@ gchar szRol[64] = "Iniciando...";
 int numproc = 5;
 int rol = ESCRITOR;
 
+int tesc = 0; //tiempo de escritura
+int tuberia[2]; //tuberia para comunicacion entre procesos
+char c; //dato testigo para la comunicacion entre procesos
+
 GtkWidget *window;
 GtkWidget *draw1;
 
@@ -25,8 +29,26 @@ cairo_surface_t *imgesc, *imglec, *imgesp, *imgact;
 
 int cambioderol(void *p){
     int ale;
-    ale = 1 + (int) (10.0 * rand() / (RAND_MAX + 1.0));
 
+    gtk_widget_queue_draw(draw1);
+    if(rol == ESCRITOR){
+        if(tesc == 0){
+            read(tuberia[0], &c, 1);
+            sprintf(szRol, "Escritor activo %d", tesc);
+        }
+        sprintf(szRol, "Escritor activo %d", tesc);
+        gtk_widget_queue_draw(draw1);
+        tesc++;
+        if(tesc <= 4){
+            return TRUE;
+        }
+        else{
+            write(tuberia[1], &c, 1);
+            tesc = 0;
+        }
+    }
+
+    ale = 1 + (int) (10.0 * rand() / (RAND_MAX + 1.0));
     if(ale <= 9){
         rol = LECTOR;
         sprintf(szRol, "Lector activo %d", ale);
@@ -44,6 +66,13 @@ int main(int argc, char *argv[]){
     pid_t pid;
     int i, ale;
     GtkBuilder *builder;
+
+    if(pipe(tuberia) == -1){
+        printf("Error al crear la tuberia\n");
+        return FALSE;
+    }
+
+    write(tuberia[1], &c, 1);
 
     for(i=0; i < numproc; i++){
         pid = fork();
@@ -93,10 +122,17 @@ int main(int argc, char *argv[]){
     cairo_surface_destroy(imglec);
     cairo_surface_destroy(imgesp);
 
+    close(tuberia[0]);
+    close(tuberia[1]);
+
     return 0;
 }
 
 void on_window_destroy(){
+    if(rol == ESCRITOR && tesc <= 4){
+        write(tuberia[1], &c, 1);
+        tesc = 0;
+    }
     gtk_main_quit();
 }
 
@@ -110,7 +146,12 @@ gboolean on_draw1_draw(GtkDrawingArea *widget, cairo_t *cr){
     cairo_set_font_size(cr, 18);
 
     if (rol == ESCRITOR){
-        imgact = imgesc;
+        if(tesc > 0){
+            imgact = imgesc;
+        }
+        else{
+            imgact = imgesp;
+        }
     }
     else{
         imgact = imglec;
