@@ -1,0 +1,1 @@
+train.csv recuperado desde [Kaggle](https://www.kaggle.com/datasets/ebertolo/mnist-csv)
