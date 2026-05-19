@@ -9,11 +9,37 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+static ssize_t recv_all(int fd, void *buf, size_t len)
+{
+	size_t total = 0;
+	char *ptr = (char *)buf;
+
+	while (total < len) {
+		ssize_t n = read(fd, ptr + total, len - total);
+		if (n <= 0) return n;
+		total += (size_t)n;
+	}
+	return (ssize_t)total;
+}
+
+static ssize_t send_all(int fd, const void *buf, size_t len)
+{
+	size_t total = 0;
+	const char *ptr = (const char *)buf;
+
+	while (total < len) {
+		ssize_t n = write(fd, ptr + total, len - total);
+		if (n <= 0) return n;
+		total += (size_t)n;
+	}
+	return (ssize_t)total;
+}
+
 int main(int argc, char *argv[])
 {
 	int sd;
 	struct sockaddr_in server_addr;
-	int num[2], res;
+	int num[2], res = 0;
 	
 	if(argc != 4){
 		printf("Faltan argumentos!!\n\tUso: %s num1 num2 dirip\n",argv[0]);
@@ -33,8 +59,16 @@ int main(int argc, char *argv[])
 	}
 	num[0] = atoi(argv[1]);
 	num[1] = atoi(argv[2]);
-	write(sd, (char *) num, 2 * sizeof(int));
-	read(sd, (char *)&res, sizeof(int));
+	if (send_all(sd, (char *)num, 2 * sizeof(int)) <= 0) {
+		perror("Error enviando datos");
+		close(sd);
+		return -1;
+	}
+	if (recv_all(sd, (char *)&res, sizeof(int)) <= 0) {
+		perror("Error leyendo respuesta");
+		close(sd);
+		return -1;
+	}
 	
 	printf("Resultado es %d\n",res);
 	
